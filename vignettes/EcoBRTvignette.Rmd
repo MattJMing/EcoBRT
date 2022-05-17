@@ -1,0 +1,332 @@
+---
+title: "EcoBRT Vignette"
+author: "Matt Ming and Karim Primov"
+date: "5/17/2022"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Put the title of your vignette here}
+  %\VignetteEngine{knitr::rmarkdown}
+  \usepackage[utf8]{inputenc}
+---
+
+# EcoBRT
+
+## Overview
+
+EcoBRT is a package for using boosted regression trees (BRTs) in R.  You can
+supply your own data, and the package has built-in functions to run a BRT
+analysis on your data.  These functions can return useful information about
+the decision tree created from your data, as well as making predictions
+using this decision tree.
+
+## Brief Summary of BRTs
+
+In short, BRTs are tree data structures which partition data for the purposes
+of making predictions of some response variable based on a number of effect
+variables.  BRTs utilize an iterative machine learning process that builds
+progressively "better" trees to explain variance in the response variable.  The
+algorithm will construct a tree by generating "decision nodes" which split the
+data along the effect variable explaining the most variance in the response
+variable.  Decision trees are a nice alternative to regression models as they
+can take in multiple effect variables and synthesize their impact on the
+response variable, including relative influence of each variable and the
+interactions between them.
+
+## Dependencies
+
+This package borrows heavily from the `gbm` and `dismo` packages for performing
+the boosted regression.  It also utilizes the `ape` and `ggplot2` packages for
+generating visualizations.
+
+# Functions
+
+This package includes four new functions which take in a data-frame and provide
+some useful outputs from a BRT analysis run on this data.
+
+## `create.BRT()`
+
+The `create.BRT()` function re-implements the `gbm.step()` function from the
+`dismo` package.  Here, users can specify the data, effect and response variables
+of interest as well as hyper-parameters dictating how the machine learning
+algorithm for the BRT performs.
+
+```{r}
+create.BRT <- function(data,eff.var,res.var,family = "bernoulli",tc,lr,bf){
+  BRT <- dismo::gbm.step(data,gbm.x = eff.var,gbm.y = res.var,family = family,
+                  tree.complexity = tc,learning.rate = lr,bag.fraction = bf)
+  return(BRT)
+}
+```
+
+Users can specify:
+
+- `data` = The data.frame containing both response and effect variables, with
+each column being a different variable and each row being a different observation
+- `eff.var` = The effect variables, a vector of numbers indicating the columns
+holding the effect variables, or a vector containing the names of the effect
+variables of interest
+- `res.var` = The response variable, a single number indicating the column
+holding the response variable, or a single string with the name of the response
+variable of interest
+- `family` = The type of regression analysis performed.  Defaults to "bernoulli"
+and other options include "gaussian" (squared error), "laplace" (absolute loss),
+"tdist" (t-distribution loss), "bernoulli" (logistic regression for 0-1 outcomes),
+"huberized" (huberized hinge loss for 0-1 outcomes), classes), "adaboost" (the
+AdaBoost exponential loss for 0-1 outcomes), "poisson" (count outcomes), "coxph"
+(right censored observations), "quantile", or "pairwise" (ranking measure using
+the LambdaMart algorithm)
+- `tc` = Tree complexity, the number of nodes desired for each "mini-tree" created
+during the iterative boosting process
+- `lr` = Learning rate, a coefficient weighting of the effect of the residuals,
+which dictates the speed at which the algorithm improves
+- `bf` = Bag fraction, the proportion of the data set used in each boosting
+iteration to generate the next tree
+
+This function will return a gbm object (from the `gbm` package) which is a large
+list containing information on trees produced, relative influence of each variable,
+and other useful information. This object will be the foundation for all other
+functions in this package.  Users should begin their analysis by running this
+function.
+
+## `major.vars()`
+
+The `major.vars()` function allows users to quickly visualize the most important
+effect variables in terms of their relative contribution to the variance of the
+response variable.  This function works very similarly to the `summary()` function
+when used on a gbm object, and utilizes ggplot to produce the relative contribution
+visualization plot. 
+
+```{r}
+major.vars <- function(BRT,levels = NULL){
+  rownames(BRT$contributions) <- NULL
+  if(is.null(levels)){df <- BRT$contributions}
+  else if(levels > nrow(BRT$contributions)){df <- BRT$contributions}
+  else{df <- BRT$contributions[1:levels,]}
+  p <- ggplot2::ggplot(data = df,ggplot2::aes(y = reorder(var, +rel.inf),x = rel.inf)) +
+    ggplot2::geom_bar(stat = "identity") +
+    ggplot2::labs(y = "Variable Name",x = "Relative Contribution")
+  print(p)
+  return(df)
+}
+```
+
+Users must input
+
+- `BRT` = a gbm object, such as the output of the`create.BRT()` function
+
+Users may specify
+
+- `levels` = an integer number, the number of most important variables the user
+would like to see; if this is left blank, the user will see all important
+variables as determined by the `create.BRT()` and `gbm.step()` functions
+
+This function will return a data-frame containing all of the important variables
+and their relative contributions in two columns ("var" and "rel.inf" respectively).
+This function will also print a barplot of the variables and their relative
+contributions.
+
+## `BRT.var.predict()`
+
+The `BRT.var.predict()` function allows users to use the output of the `create.BRT()`
+function and predict what the value of the response variable will be based on
+user-supplied effect variables of interest and values for those effect variables.
+This function makes use of the `predict.gbm()` function from the `gbm` package.
+
+```{r}
+BRT.var.predict <- function(BRT,var.name,var.value){
+  test.data <- as.data.frame(matrix(ncol = length(BRT$var.names)))
+  names(test.data) <- BRT$var.names
+  for(i in 1:length(var.name)){test.data[[var.name[i]]] <- var.value[i]}
+  gbm::predict.gbm(BRT,test.data)
+}
+```
+
+User inputs:
+
+- `BRT` = a gbm object, such as the output of the`create.BRT()` function
+- `var.name` = a single variable name or vector of effect variable names of
+interest upon which to base the prediction; the variable names must exist within
+the list of effect variables used to generate the original gbm object with
+`create.BRT()`
+- `var.value` a single value or vector of values of interest upon which to base
+the prediction; the values here correspond to the variable names defined in
+`var.name`
+
+This function will return a single value which is the prediction of the value
+of the response variable given the effect variables and values provided.  Note
+that the output will be given as a function of the response variable based on the
+type of regression analysis performed.  For example, for a bernoulli analysis
+the output will be in the form of the log odds ratio, or $log(\frac{p}{1-p})$.
+
+## `view.tree()`
+
+The `view.tree()` function allows users to get a visual representation of one
+of the trees created during the BRT algorithm.  Specifically, this function
+will visualize one of the mini-trees generated during boosting.  This function
+makes use of the tree drawing and labelling capabilities in the `ape` package,
+specifically the `read.tree()` and `nodelabels()` functions.
+
+This function also uses a custom helper function, `build.newick()`, which is
+embedded within the main `view.tree()` function.  `build.newick()` is a 
+recursive function which utilizes information from the `$trees` field in a gbm
+object and generates a Newick format tree string.  Newick format strings represent
+trees using nested values within parentheses, such as "((A,B),(C,(D,E)))".  The
+`build.newick()` function will move through the nodes of the tree, following
+daughter branches until reaching a terminal node, while also saving information
+about the internal nodes along the way.
+
+```{r}
+view.tree <- function(BRT,tree.num = 1){
+  tree.tab <- gbm::pretty.gbm.tree(BRT,tree.num)
+  build.newick <- function(TREE,node){
+    node <- as.character(node)
+    d1 <- as.character(TREE[node,3])
+    d2 <- as.character(TREE[node,4])
+    char <- BRT$var.names[as.numeric(node) + 1]
+    split <- TREE[node,2]
+    if(TREE[d1,3] == -1){
+      val1 <- TREE[d1,2]
+    }else{
+      val1 <- build.newick(TREE,d1)[[1]]
+      char <- c(char,build.newick(TREE,d1)[[2]])
+      split <- c(split,build.newick(TREE,d1)[[3]])
+    }
+    if(TREE[d2,3] == -1){
+      val2 <- TREE[d2,2]
+    }else{
+      val2 <- build.newick(TREE,d2)[[1]]
+      char <- c(char,build.newick(TREE,d2)[[2]])
+      split <- c(split,build.newick(TREE,d2)[[3]])
+    }
+    return(list(paste0("(",val1,",",val2,")"),
+                char,
+                split))
+  }
+  tree.newick <- build.newick(tree.tab,0)
+  tree <- ape::read.tree(text = paste0(tree.newick[[1]],";"))
+  plot(tree)
+  labs <- paste0(tree.newick[[2]],"\nSplit = ",tree.newick[[3]])
+  ape::nodelabels(labs,(length(tree$tip.label) + 1):(length(tree$tip.label) + tree$Nnode))
+  return(tree.newick)
+}
+
+```
+
+User inputs:
+
+- `BRT` = a gbm object, such as the output of the`create.BRT()` function
+- `tree.num` = which number tree the user wants to visualize, out of the n trees
+generated during boosting; this number defaults to 1 (i.e., visualizing the first
+tree generated)
+
+This function returns a list containing three elements: 1) the Newick-format
+tree string, 2) the labels for the internal nodes, indicating the variable upon
+which the node was split, and 3) the values of the splits of the internal nodes,
+indicating the threshold upon which the node variable was split.  This function
+will also produce a visualization of the tree with uniform branch lengths.  The
+values on the terminal nodes represent the mean value of the response variable
+for the subset of data points left from following that set of branches to the
+leaf.  For example, a terminal node reading "1.125" shows that the data at that
+leaf had an average response variable value of 1.125.  The labels of the internal
+nodes represent the effect variable which was most explanatory at that split, and
+the "Split =" value on each internal node indicates the threshold value upon which
+the effect variable at that node was split.  For example, an internal node reading
+"Temperature, split = 20" shows that at that node, the "Temperature" variable
+explained the most variance in the response variable, and a threshold of 20 degrees
+explained the most variance.
+
+# Example
+
+To demonstrate the utility of our functions, we will run through an example using
+a data set provided by Elith et al., 2008, on the presence and absence of the
+short-finned eel *Anguilla australis* based on a variety of environmental factors.
+
+The data-set can be found by running:
+```{r}
+data(Anguilla_train, package = "dismo")
+head(Anguilla_train)
+```
+
+Here, we can see we have data from 1,000 sites ("Site", column 1) about whether
+the eel was present or absent at that site ("Angaus", column 2), as well as 12
+other environmental variables which may or may not have some influence on eel
+presence (columns 3-14).  In order to run a BRT on this data, we can use our
+`createBRT()` function:
+```{r}
+set.seed(1234)
+BRT.model <- create.BRT(Anguilla_train,eff.var = 3:14,res.var = "Angaus",
+           family = "bernoulli",tc = 5,lr = 0.01,bf = 0.5)
+```
+
+Based on the specifications of the `gbm.step()` function in the `dismo` package,
+this prints out a series of console outputs specifying how many trees were made,
+what the total processing time was, and other features.  It also produces a graph
+which shows the results of a cross-validation method to determine the optimal
+number of trees for the model.
+
+We are most interested in the output of this function, BRT.model, which is a large
+list with a lot of useful information such as the most important variables, a list
+of all trees produced during boosting, and a list of the fitted response variable
+predictions.
+
+We can view all of the parts of this BRT.model using:
+```{r}
+names(BRT.model)
+```
+
+To get the most important variables, and specifically the most important 3, and
+single most important variable for explaining variance in the response variable,
+we can use our function `major.vars()`:
+```{r}
+major.vars(BRT.model)
+major.vars(BRT.model,levels = 3)
+major.vars(BRT.model,1)
+```
+
+This shows us that SegSumT (average summer temperature), DSDist (downstream distance
+to coast), and USNative (proportion of area with indigenous forest) are the three
+most important variables in explaining variance in probability of presence or
+absence of eels.  It also shows that DSDam (presence of downstream dams) was a
+relatively unimportant variable for predicting presence of eels.  For the purposes
+of this vignette, we are simply using made-up values for each of these variables.
+
+Knowing this, we can now ask what the predicted response variable value (probability
+of eel presence) will be based on new data gathered for several effect variables.
+We can do this using the `BRT.var.predict()` function:
+```{r}
+pred.val <- BRT.var.predict(BRT.model,
+                var.name = c("SegSumT","SegTSeas","USAvgT","LocSed"),
+                var.value = c(20,-1.5,1.2,3.5))
+print(pred.val)
+```
+
+This shows us that for data collected for a new site with SegSumT = 20, SegTSeas
+= -1.5, USAvgT = 1.2, and LocSed = 3.5, the log odds ratio of finding eels at
+that site in those conditions is -1.252324.  We can use the inverse log function
+to find that p is 10^(-1.252324)/(1 + 10^(-1.252324)) = 0.5297117, or about a
+5.3% chance of finding eels at this site.
+
+Finally, to get an idea of the trees generated by the boosting algorithm, and the
+variables and thresholds used for the decision tree splits, we can use our
+`view.tree()` function:
+```{r,fig.dim=c(10,5)}
+tree.data <- view.tree(BRT.model,tree.num = 3)
+```
+
+This shows the terminal nodes and splits for tree #3 generated during the boosting
+algorithm.  This tree first split the data on SegSumT = 16.05, then split the
+data for SegSumT > 16.05 by SegLowFlow = 9.25, and so on.  The predictions for the
+response variable (again shown here as log odds ratios) are shown on the leaves.
+For example, here we see that the average log odds of finding an eel at a site
+with SegSumT > 16.05, SegLowFlow > 9.25, USSlope < 3.75, and USNative < 0.505 was
+approximately 0.001566, or a p of 0.5009015, about a 50% chance.
+
+# Conclusions
+
+BRTs are an exciting developing method for making predictions on ecological data.
+We hope our package EcoBRT will provide some useful R functions for analyzing
+and visualizing outputs of BRT analyses.
+
+For further investigation, the documentation for `gbm` and `dismo` may have
+information about how to get more out of the BRT model results.
+

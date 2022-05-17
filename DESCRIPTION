@@ -1,0 +1,19 @@
+Package: EcoBRT
+Type: Package
+Title: What the Package Does (Title Case)
+Version: 0.1.0
+Author: Matthew Ming, Karim Primov
+Maintainer: Matthew Ming <mjm8356@utexas.edu>
+Description: Collection of functions to generate Boosted Regression Trees
+    using Gradient Boosting techniques for ecological data in R
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+Suggests: knitr, rmarkdown
+VignetteBuilder: knitr
+Imports: 
+    gbm,
+    ape,
+    ggplot2,
+    dismo
+RoxygenNote: 7.2.0
