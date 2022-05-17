@@ -251,7 +251,7 @@ Here, we can see we have data from 1,000 sites ("Site", column 1) about whether
 the eel was present or absent at that site ("Angaus", column 2), as well as 12
 other environmental variables which may or may not have some influence on eel
 presence (columns 3-14).  In order to run a BRT on this data, we can use our
-`createBRT()` function:
+`createBRT()` function here:
 ```{r}
 set.seed(1234)
 BRT.model <- create.BRT(Anguilla_train,eff.var = 3:14,res.var = "Angaus",
